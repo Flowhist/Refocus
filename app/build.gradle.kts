@@ -23,8 +23,8 @@ android {
         applicationId = "com.flowhist.refocus"
         minSdk = 31
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.2.11"
+        versionCode = 14
+        versionName = "0.2.12"
     }
 
     signingConfigs {

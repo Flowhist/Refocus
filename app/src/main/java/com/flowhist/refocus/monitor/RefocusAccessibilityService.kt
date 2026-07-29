@@ -187,6 +187,8 @@ class RefocusAccessibilityService : AccessibilityService() {
                 exitDebounceJob?.cancel()
                 exitDebounceJob = null
                 resumeSessionClock(current)
+            } else if (current.graceStartedAtActiveMs != null) {
+                finishActiveSession(current)
             } else if (exitDebounceJob == null) {
                 overlays.dismiss()
                 val now = SystemClock.elapsedRealtime()
