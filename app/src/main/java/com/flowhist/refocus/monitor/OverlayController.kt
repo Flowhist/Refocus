@@ -17,6 +17,7 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.PathInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
@@ -370,7 +371,7 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         dismiss(animated = false)
 
         val scrim = View(service).apply {
-            setBackgroundColor(ACRYLIC_TINT)
+            setBackgroundColor(BACKDROP)
             alpha = 0f
         }
         val scroll = ScrollView(service).apply {
@@ -407,11 +408,19 @@ class OverlayController(private val service: RefocusAccessibilityService) {
                 val ime = insets.getInsets(WindowInsets.Type.ime())
                 scrollParams.setMargins(
                     dp(18),
-                    bars.top + dp(if (ime.bottom > 0) 10 else 32),
+                    bars.top + dp(24),
                     dp(18),
-                    maxOf(bars.bottom, ime.bottom) + dp(if (ime.bottom > 0) 10 else 18),
+                    bars.bottom + dp(18),
                 )
                 scroll.layoutParams = scrollParams
+                view.post {
+                    updateKeyboardOffset(
+                        scroll = scroll,
+                        root = view,
+                        topInset = bars.top,
+                        imeBottom = ime.bottom,
+                    )
+                }
                 insets
             }
         }
@@ -420,17 +429,15 @@ class OverlayController(private val service: RefocusAccessibilityService) {
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_BLUR_BEHIND,
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             setFitInsetsTypes(0)
             layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-            setBlurBehindRadius(dp(48))
             softInputMode =
-                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING or
                     WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
             title = "Refocus"
         }
@@ -458,6 +465,36 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         scrim.animate()
             .alpha(1f)
             .setDuration(ENTER_ANIMATION_MS)
+            .start()
+    }
+
+    private fun updateKeyboardOffset(
+        scroll: View,
+        root: View,
+        topInset: Int,
+        imeBottom: Int,
+    ) {
+        if (!scroll.isLaidOut || root.height == 0) return
+
+        val gap = dp(18)
+        val targetOffset =
+            if (imeBottom > 0) {
+                val keyboardTop = root.height - imeBottom
+                val overlap = (scroll.bottom + gap - keyboardTop).coerceAtLeast(0)
+                val availableUpwardSpace =
+                    (scroll.top - topInset - gap).coerceAtLeast(0)
+                -minOf(overlap, availableUpwardSpace).toFloat()
+            } else {
+                0f
+            }
+
+        if (scroll.translationY == targetOffset) return
+        scroll.animate()
+            .cancel()
+        scroll.animate()
+            .translationY(targetOffset)
+            .setDuration(if (imeBottom > 0) 240L else 200L)
+            .setInterpolator(KEYBOARD_INTERPOLATOR)
             .start()
     }
 
@@ -502,8 +539,15 @@ class OverlayController(private val service: RefocusAccessibilityService) {
     private fun panel(): LinearLayout = LinearLayout(service).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(20), dp(20), dp(20), dp(18))
-        background = rounded(PANEL, 24)
-        elevation = dp(16).toFloat()
+        background =
+            GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(PANEL)
+                setStroke(dp(1), STROKE)
+                cornerRadius = dp(24).toFloat()
+            }
+        clipToOutline = true
+        elevation = 0f
     }
 
     private fun eyebrow(value: String, color: Int = ACCENT) = TextView(service).apply {
@@ -629,6 +673,7 @@ class OverlayController(private val service: RefocusAccessibilityService) {
 
         val BOLD: Typeface = Typeface.create("sans-serif", Typeface.BOLD)
         val MEDIUM: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        val KEYBOARD_INTERPOLATOR = PathInterpolator(0.2f, 0f, 0f, 1f)
         val TEXT = Color.rgb(18, 24, 20)
         val MUTED = Color.rgb(99, 111, 103)
         val ACCENT = Color.rgb(45, 99, 70)
@@ -637,6 +682,6 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         val FIELD = Color.rgb(244, 247, 243)
         val SURFACE_TINT = Color.rgb(230, 238, 232)
         val STROKE = Color.rgb(213, 222, 215)
-        val ACRYLIC_TINT = Color.argb(102, 224, 232, 226)
+        val BACKDROP = Color.argb(132, 8, 11, 9)
     }
 }
