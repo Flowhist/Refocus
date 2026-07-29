@@ -30,4 +30,7 @@ through Obtainium. Signing and first-time setup are documented in
 
 ## Privacy
 
-Refocus stores data locally and observes package names only. It does not inspect accessibility node text or transmit usage records.
+Refocus stores data locally and observes package names only. It does not inspect
+accessibility node text or transmit usage records. While a prompt is visible, a
+downsampled screenshot may be held briefly in memory only to render the blurred
+backdrop; it is recycled as soon as the prompt closes and is never saved or sent.

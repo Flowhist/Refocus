@@ -1,10 +1,13 @@
 package com.flowhist.refocus.monitor
 
-import android.animation.ValueAnimator
+import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.content.res.ColorStateList
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
@@ -15,6 +18,7 @@ import android.text.TextWatcher
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.view.Display
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
@@ -23,6 +27,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -41,9 +46,12 @@ class OverlayController(private val service: RefocusAccessibilityService) {
     private var rootView: FrameLayout? = null
     private var cardView: View? = null
     private var scrimView: View? = null
+    private var backdropView: ImageView? = null
+    private var backdropBitmap: Bitmap? = null
     private var countdownView: TextView? = null
     private var backDispatcher: OnBackInvokedDispatcher? = null
     private var backCallback: OnBackInvokedCallback? = null
+    private var showGeneration = 0L
 
     var kind: Kind? = null
         private set
@@ -333,15 +341,18 @@ class OverlayController(private val service: RefocusAccessibilityService) {
     }
 
     fun dismiss(animated: Boolean = true) {
+        showGeneration++
         val root = rootView ?: return
         val card = cardView
         val scrim = scrimView
-        val params = root.layoutParams as? WindowManager.LayoutParams
-        val currentBlurRadius = root.tag as? Int ?: dp(TARGET_BLUR_RADIUS_DP)
+        val backdrop = backdropView
+        val bitmap = backdropBitmap
 
         rootView = null
         cardView = null
         scrimView = null
+        backdropView = null
+        backdropBitmap = null
         countdownView = null
         kind = null
         unregisterBackHandler()
@@ -349,18 +360,10 @@ class OverlayController(private val service: RefocusAccessibilityService) {
 
         if (!animated || !root.isAttachedToWindow) {
             runCatching { windowManager.removeViewImmediate(root) }
+            bitmap?.recycle()
             return
         }
 
-        if (params != null) {
-            animateWindowBlur(
-                root = root,
-                params = params,
-                fromRadius = currentBlurRadius,
-                toRadius = 0,
-                duration = EXIT_ANIMATION_MS,
-            )
-        }
         card?.animate()
             ?.alpha(0f)
             ?.scaleX(0.98f)
@@ -373,17 +376,63 @@ class OverlayController(private val service: RefocusAccessibilityService) {
             ?.alpha(0f)
             ?.setDuration(EXIT_ANIMATION_MS)
             ?.start()
+        backdrop?.animate()
+            ?.alpha(0f)
+            ?.scaleX(1.06f)
+            ?.scaleY(1.06f)
+            ?.setDuration(EXIT_ANIMATION_MS)
+            ?.setInterpolator(KEYBOARD_INTERPOLATOR)
+            ?.start()
         root.postDelayed(
-            { runCatching { windowManager.removeViewImmediate(root) } },
+            {
+                runCatching { windowManager.removeViewImmediate(root) }
+                bitmap?.recycle()
+            },
             EXIT_ANIMATION_MS + 20L,
         )
     }
 
     private fun show(newKind: Kind, content: View) {
         dismiss(animated = false)
+        val generation = ++showGeneration
+        captureBackdrop { bitmap ->
+            if (generation != showGeneration) {
+                bitmap?.recycle()
+                return@captureBackdrop
+            }
+            showWithBackdrop(newKind, content, bitmap)
+        }
+    }
 
+    private fun showWithBackdrop(
+        newKind: Kind,
+        content: View,
+        bitmap: Bitmap?,
+    ) {
+        val backdrop =
+            bitmap?.let { captured ->
+                ImageView(service).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    setImageBitmap(captured)
+                    setRenderEffect(
+                        RenderEffect.createBlurEffect(
+                            dp(32).toFloat(),
+                            dp(32).toFloat(),
+                            Shader.TileMode.CLAMP,
+                        ),
+                    )
+                    alpha = 0f
+                    scaleX = 1.06f
+                    scaleY = 1.06f
+                }
+            }
         val scrim = View(service).apply {
-            background = acrylicBackdrop()
+            background =
+                if (bitmap != null) {
+                    acrylicBackdrop()
+                } else {
+                    fallbackBackdrop()
+                }
             alpha = 0f
         }
         val scroll = ScrollView(service).apply {
@@ -402,6 +451,7 @@ class OverlayController(private val service: RefocusAccessibilityService) {
             isFocusable = true
             isFocusableInTouchMode = true
             setBackgroundColor(Color.TRANSPARENT)
+            backdrop?.let { addView(it, FrameLayout.LayoutParams(MATCH, MATCH)) }
             addView(scrim, FrameLayout.LayoutParams(MATCH, MATCH))
             addView(scroll, scrollParams)
             setOnKeyListener { _, keyCode, event ->
@@ -442,14 +492,13 @@ class OverlayController(private val service: RefocusAccessibilityService) {
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_BLUR_BEHIND,
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             setFitInsetsTypes(0)
             layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-            setBlurBehindRadius(0)
             softInputMode =
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING or
                     WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
@@ -460,7 +509,8 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         rootView = root
         cardView = content
         scrimView = scrim
-        root.tag = 0
+        backdropView = backdrop
+        backdropBitmap = bitmap
         kind = newKind
         registerBackHandler(root)
         root.requestApplyInsets()
@@ -482,36 +532,57 @@ class OverlayController(private val service: RefocusAccessibilityService) {
             .setDuration(ENTER_ANIMATION_MS)
             .setInterpolator(KEYBOARD_INTERPOLATOR)
             .start()
-        animateWindowBlur(
-            root = root,
-            params = params,
-            fromRadius = 0,
-            toRadius = dp(TARGET_BLUR_RADIUS_DP),
-            duration = ENTER_ANIMATION_MS,
-        )
+        backdrop?.animate()
+            ?.alpha(1f)
+            ?.scaleX(1.03f)
+            ?.scaleY(1.03f)
+            ?.setDuration(ENTER_ANIMATION_MS)
+            ?.setInterpolator(KEYBOARD_INTERPOLATOR)
+            ?.start()
     }
 
-    private fun animateWindowBlur(
-        root: View,
-        params: WindowManager.LayoutParams,
-        fromRadius: Int,
-        toRadius: Int,
-        duration: Long,
-    ) {
-        ValueAnimator.ofInt(fromRadius, toRadius).apply {
-            this.duration = duration
-            interpolator = KEYBOARD_INTERPOLATOR
-            addUpdateListener { animator ->
-                if (!root.isAttachedToWindow) {
-                    animator.cancel()
-                    return@addUpdateListener
-                }
-                val radius = animator.animatedValue as Int
-                root.tag = radius
-                params.setBlurBehindRadius(radius)
-                runCatching { windowManager.updateViewLayout(root, params) }
-            }
-            start()
+    private fun captureBackdrop(onReady: (Bitmap?) -> Unit) {
+        val displayId = service.display?.displayId ?: Display.DEFAULT_DISPLAY
+        runCatching {
+            service.takeScreenshot(
+                displayId,
+                service.mainExecutor,
+                object : AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(
+                        screenshot: AccessibilityService.ScreenshotResult,
+                    ) {
+                        onReady(createBackdropBitmap(screenshot))
+                    }
+
+                    override fun onFailure(errorCode: Int) {
+                        onReady(null)
+                    }
+                },
+            )
+        }.onFailure {
+            onReady(null)
+        }
+    }
+
+    private fun createBackdropBitmap(
+        screenshot: AccessibilityService.ScreenshotResult,
+    ): Bitmap? {
+        val buffer = screenshot.hardwareBuffer
+        return try {
+            val wrapped =
+                Bitmap.wrapHardwareBuffer(buffer, screenshot.colorSpace)
+                    ?: return null
+            val scaled =
+                Bitmap.createScaledBitmap(
+                    wrapped,
+                    maxOf(1, wrapped.width / BACKDROP_DOWNSAMPLE),
+                    maxOf(1, wrapped.height / BACKDROP_DOWNSAMPLE),
+                    true,
+                )
+            wrapped.recycle()
+            scaled
+        } finally {
+            buffer.close()
         }
     }
 
@@ -713,9 +784,18 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
             intArrayOf(
-                Color.argb(76, 157, 168, 161),
-                Color.argb(92, 65, 74, 69),
-                Color.argb(112, 22, 28, 25),
+                Color.argb(58, 210, 217, 212),
+                Color.argb(70, 105, 116, 109),
+                Color.argb(88, 31, 38, 34),
+            ),
+        )
+
+    private fun fallbackBackdrop() =
+        GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(
+                Color.argb(168, 35, 42, 38),
+                Color.argb(190, 15, 20, 17),
             ),
         )
 
@@ -727,7 +807,7 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
         const val ENTER_ANIMATION_MS = 240L
         const val EXIT_ANIMATION_MS = 180L
-        const val TARGET_BLUR_RADIUS_DP = 56
+        const val BACKDROP_DOWNSAMPLE = 4
 
         val BOLD: Typeface = Typeface.create("sans-serif", Typeface.BOLD)
         val MEDIUM: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
