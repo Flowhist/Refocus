@@ -1,5 +1,6 @@
 package com.flowhist.refocus.monitor
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -335,6 +336,8 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         val root = rootView ?: return
         val card = cardView
         val scrim = scrimView
+        val params = root.layoutParams as? WindowManager.LayoutParams
+        val currentBlurRadius = root.tag as? Int ?: dp(TARGET_BLUR_RADIUS_DP)
 
         rootView = null
         cardView = null
@@ -349,6 +352,15 @@ class OverlayController(private val service: RefocusAccessibilityService) {
             return
         }
 
+        if (params != null) {
+            animateWindowBlur(
+                root = root,
+                params = params,
+                fromRadius = currentBlurRadius,
+                toRadius = 0,
+                duration = EXIT_ANIMATION_MS,
+            )
+        }
         card?.animate()
             ?.alpha(0f)
             ?.scaleX(0.98f)
@@ -371,7 +383,7 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         dismiss(animated = false)
 
         val scrim = View(service).apply {
-            setBackgroundColor(BACKDROP)
+            background = acrylicBackdrop()
             alpha = 0f
         }
         val scroll = ScrollView(service).apply {
@@ -429,13 +441,15 @@ class OverlayController(private val service: RefocusAccessibilityService) {
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_BLUR_BEHIND,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             setFitInsetsTypes(0)
             layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            setBlurBehindRadius(0)
             softInputMode =
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING or
                     WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
@@ -446,6 +460,7 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         rootView = root
         cardView = content
         scrimView = scrim
+        root.tag = 0
         kind = newKind
         registerBackHandler(root)
         root.requestApplyInsets()
@@ -465,7 +480,39 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         scrim.animate()
             .alpha(1f)
             .setDuration(ENTER_ANIMATION_MS)
+            .setInterpolator(KEYBOARD_INTERPOLATOR)
             .start()
+        animateWindowBlur(
+            root = root,
+            params = params,
+            fromRadius = 0,
+            toRadius = dp(TARGET_BLUR_RADIUS_DP),
+            duration = ENTER_ANIMATION_MS,
+        )
+    }
+
+    private fun animateWindowBlur(
+        root: View,
+        params: WindowManager.LayoutParams,
+        fromRadius: Int,
+        toRadius: Int,
+        duration: Long,
+    ) {
+        ValueAnimator.ofInt(fromRadius, toRadius).apply {
+            this.duration = duration
+            interpolator = KEYBOARD_INTERPOLATOR
+            addUpdateListener { animator ->
+                if (!root.isAttachedToWindow) {
+                    animator.cancel()
+                    return@addUpdateListener
+                }
+                val radius = animator.animatedValue as Int
+                root.tag = radius
+                params.setBlurBehindRadius(radius)
+                runCatching { windowManager.updateViewLayout(root, params) }
+            }
+            start()
+        }
     }
 
     private fun updateKeyboardOffset(
@@ -662,14 +709,25 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         cornerRadius = dp(radiusDp).toFloat()
     }
 
+    private fun acrylicBackdrop() =
+        GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(
+                Color.argb(76, 157, 168, 161),
+                Color.argb(92, 65, 74, 69),
+                Color.argb(112, 22, 28, 25),
+            ),
+        )
+
     private fun dp(value: Int): Int =
         (value * service.resources.displayMetrics.density).toInt()
 
     private companion object {
         const val MATCH = LinearLayout.LayoutParams.MATCH_PARENT
         const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
-        const val ENTER_ANIMATION_MS = 190L
-        const val EXIT_ANIMATION_MS = 120L
+        const val ENTER_ANIMATION_MS = 240L
+        const val EXIT_ANIMATION_MS = 180L
+        const val TARGET_BLUR_RADIUS_DP = 56
 
         val BOLD: Typeface = Typeface.create("sans-serif", Typeface.BOLD)
         val MEDIUM: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
@@ -682,6 +740,5 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         val FIELD = Color.rgb(244, 247, 243)
         val SURFACE_TINT = Color.rgb(230, 238, 232)
         val STROKE = Color.rgb(213, 222, 215)
-        val BACKDROP = Color.argb(132, 8, 11, 9)
     }
 }
