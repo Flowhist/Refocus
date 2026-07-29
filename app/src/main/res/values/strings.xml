@@ -5,4 +5,5 @@
     <string name="accessibility_description">仅识别当前可见应用的包名，以显示目的确认和计时提醒；不会读取页面文字、密码或输入内容。</string>
     <string name="notification_channel_name">监控状态</string>
     <string name="notification_channel_description">显示 Refocus 是否正在监视所选应用</string>
+    <string name="quick_settings_tile_label">Refocus 监测</string>
 </resources>

@@ -105,6 +105,7 @@ class RefocusAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         overlays.dismiss()
+        stopForeground(STOP_FOREGROUND_REMOVE)
         if (screenReceiverRegistered) {
             runCatching { unregisterReceiver(screenReceiver) }
             screenReceiverRegistered = false
@@ -133,7 +134,7 @@ class RefocusAccessibilityService : AccessibilityService() {
             return
         }
         evaluateForeground()
-        if (activeSession == null) return
+        if (activeSession == null || exitDebounceJob != null) return
 
         val now = SystemClock.elapsedRealtime()
         val activeMs = session.activeDurationMs(now)
@@ -185,10 +186,18 @@ class RefocusAccessibilityService : AccessibilityService() {
             if (isTargetForeground(current.packageName, visible)) {
                 exitDebounceJob?.cancel()
                 exitDebounceJob = null
+                resumeSessionClock(current)
             } else if (exitDebounceJob == null) {
                 overlays.dismiss()
+                val now = SystemClock.elapsedRealtime()
+                val exitStartedAt = current.pauseStartedAtElapsed ?: now.also {
+                    current.pauseStartedAtElapsed = it
+                    settings.saveActiveSession(current)
+                }
+                val remainingGrace =
+                    (EXIT_GRACE_MS - (now - exitStartedAt)).coerceAtLeast(0L)
                 exitDebounceJob = serviceScope.launch {
-                    delay(EXIT_DEBOUNCE_MS)
+                    delay(remainingGrace)
                     exitDebounceJob = null
                     val stillVisible =
                         isTargetForeground(current.packageName, visibleApps())
@@ -364,27 +373,30 @@ class RefocusAccessibilityService : AccessibilityService() {
     private fun pauseSession() {
         overlays.dismiss()
         val session = activeSession ?: return
-        if (session.pauseStartedAtElapsed == null) {
-            session.pauseStartedAtElapsed = SystemClock.elapsedRealtime()
-            settings.saveActiveSession(session)
-        }
+        pauseSessionClock(session)
         exitDebounceJob?.cancel()
         exitDebounceJob = null
     }
 
     private fun resumeSession() {
-        val session = activeSession
-        if (session != null) {
-            val pauseStart = session.pauseStartedAtElapsed
-            if (pauseStart != null) {
-                session.pausedDurationMs +=
-                    (SystemClock.elapsedRealtime() - pauseStart).coerceAtLeast(0L)
-                session.pauseStartedAtElapsed = null
-                settings.saveActiveSession(session)
-            }
-        }
+        activeSession?.let(::resumeSessionClock)
         restoreVisiblePrompt()
         evaluateForeground()
+    }
+
+    private fun pauseSessionClock(session: ActiveSession) {
+        if (session.pauseStartedAtElapsed == null) {
+            session.pauseStartedAtElapsed = SystemClock.elapsedRealtime()
+            settings.saveActiveSession(session)
+        }
+    }
+
+    private fun resumeSessionClock(session: ActiveSession) {
+        val pauseStart = session.pauseStartedAtElapsed ?: return
+        session.pausedDurationMs +=
+            (SystemClock.elapsedRealtime() - pauseStart).coerceAtLeast(0L)
+        session.pauseStartedAtElapsed = null
+        settings.saveActiveSession(session)
     }
 
     private fun restoreVisiblePrompt() {
@@ -515,9 +527,11 @@ class RefocusAccessibilityService : AccessibilityService() {
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
-        runCatching {
-            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
-        }
+        runCatching { startForeground(NOTIFICATION_ID, notification) }
+            .onFailure {
+                getSystemService(NotificationManager::class.java)
+                    .notify(NOTIFICATION_ID, notification)
+            }
     }
 
     companion object {
@@ -534,7 +548,7 @@ class RefocusAccessibilityService : AccessibilityService() {
         private const val NOTIFICATION_CHANNEL = "monitoring"
         private const val NOTIFICATION_ID = 1001
         private const val TICK_MS = 250L
-        private const val EXIT_DEBOUNCE_MS = 280L
+        private const val EXIT_GRACE_MS = 10_000L
         private const val GRACE_MS = 5_000L
         private const val REMINDER_MS = 5_000L
     }
