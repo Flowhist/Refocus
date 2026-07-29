@@ -8,7 +8,9 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Build
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -48,7 +50,6 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         appLabel: String,
         onConfirm: (purpose: String, minutes: Int) -> Unit,
     ) {
-        var selectedMinutes = 10
         val content = panel()
         content.addView(eyebrow("REFOCUS  ·  $appLabel"))
         content.addView(title("这次来做什么？"))
@@ -82,14 +83,35 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         )
 
         content.addView(sectionLabel("计划时长"))
+        val durationInput = EditText(service).apply {
+            setText("10")
+            setSelectAllOnFocus(true)
+            gravity = Gravity.CENTER
+            setTextColor(TEXT)
+            setHintTextColor(MUTED)
+            textSize = 16f
+            inputType = InputType.TYPE_CLASS_NUMBER
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            background = fieldBackground()
+            setPadding(dp(10), 0, dp(10), 0)
+            setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == EditorInfo.IME_ACTION_DONE) {
+                    hideKeyboardAndClearFocus()
+                    true
+                } else {
+                    false
+                }
+            }
+        }
         val chips = mutableListOf<Pair<Int, TextView>>()
         val durationRow = LinearLayout(service).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
         fun refreshChips() {
+            val enteredMinutes = durationInput.text.toString().toIntOrNull()
             chips.forEach { (minutes, chip) ->
-                val selected = minutes == selectedMinutes
+                val selected = minutes == enteredMinutes
                 chip.setTextColor(if (selected) Color.WHITE else TEXT)
                 chip.background = clickableBackground(
                     fill = if (selected) ACCENT else SURFACE_TINT,
@@ -104,8 +126,10 @@ class OverlayController(private val service: RefocusAccessibilityService) {
                 textSize = 13f
                 typeface = MEDIUM
                 setOnClickListener {
-                    selectedMinutes = minutes
-                    refreshChips()
+                    durationInput.setText(minutes.toString())
+                    durationInput.setSelection(durationInput.text.length)
+                    durationInput.clearFocus()
+                    hideKeyboard(durationInput)
                 }
             }
             chips += minutes to chip
@@ -117,8 +141,56 @@ class OverlayController(private val service: RefocusAccessibilityService) {
                 },
             )
         }
+        durationInput.addTextChangedListener(
+            object : TextWatcher {
+                override fun beforeTextChanged(
+                    value: CharSequence?,
+                    start: Int,
+                    count: Int,
+                    after: Int,
+                ) = Unit
+
+                override fun onTextChanged(
+                    value: CharSequence?,
+                    start: Int,
+                    before: Int,
+                    count: Int,
+                ) = Unit
+
+                override fun afterTextChanged(value: Editable?) {
+                    refreshChips()
+                }
+            },
+        )
         refreshChips()
         content.addView(durationRow, LinearLayout.LayoutParams(MATCH, WRAP))
+        val customDurationRow = LinearLayout(service).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(
+                TextView(service).apply {
+                    text = "自定义"
+                    setTextColor(MUTED)
+                    textSize = 13f
+                    typeface = MEDIUM
+                },
+                LinearLayout.LayoutParams(0, WRAP, 1f),
+            )
+            addView(durationInput, LinearLayout.LayoutParams(dp(88), dp(44)))
+            addView(
+                TextView(service).apply {
+                    text = "分钟"
+                    setTextColor(MUTED)
+                    textSize = 13f
+                    setPadding(dp(8), 0, 0, 0)
+                },
+                LinearLayout.LayoutParams(WRAP, WRAP),
+            )
+        }
+        content.addView(
+            customDurationRow,
+            LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(10) },
+        )
 
         val error = TextView(service).apply {
             setTextColor(DANGER)
@@ -134,6 +206,7 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         content.addView(
             primaryButton("开始专注  →") {
                 val purpose = purposeInput.text.toString().trim()
+                val minutes = durationInput.text.toString().toIntOrNull()
                 if (purpose.isBlank()) {
                     error.text = "先写下一件要完成的事"
                     error.visibility = View.VISIBLE
@@ -142,9 +215,18 @@ class OverlayController(private val service: RefocusAccessibilityService) {
                         purposeInput,
                         InputMethodManager.SHOW_IMPLICIT,
                     )
+                } else if (minutes == null || minutes !in 1..1440) {
+                    error.text = "请输入 1–1440 分钟"
+                    error.visibility = View.VISIBLE
+                    durationInput.requestFocus()
+                    durationInput.selectAll()
+                    inputMethodManager.showSoftInput(
+                        durationInput,
+                        InputMethodManager.SHOW_IMPLICIT,
+                    )
                 } else {
                     dismiss()
-                    onConfirm(purpose, selectedMinutes)
+                    onConfirm(purpose, minutes)
                 }
             },
             LinearLayout.LayoutParams(MATCH, dp(52)).apply { topMargin = dp(18) },
@@ -288,7 +370,7 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         dismiss(animated = false)
 
         val scrim = View(service).apply {
-            setBackgroundColor(SCRIM)
+            setBackgroundColor(ACRYLIC_TINT)
             alpha = 0f
         }
         val scroll = ScrollView(service).apply {
@@ -297,15 +379,18 @@ class OverlayController(private val service: RefocusAccessibilityService) {
             overScrollMode = View.OVER_SCROLL_NEVER
             addView(content, FrameLayout.LayoutParams(MATCH, WRAP))
         }
+        val scrollParams =
+            FrameLayout.LayoutParams(
+                MATCH,
+                WRAP,
+                Gravity.CENTER,
+            )
         val root = FrameLayout(service).apply {
             isFocusable = true
             isFocusableInTouchMode = true
             setBackgroundColor(Color.TRANSPARENT)
             addView(scrim, FrameLayout.LayoutParams(MATCH, MATCH))
-            addView(
-                scroll,
-                FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL),
-            )
+            addView(scroll, scrollParams)
             setOnKeyListener { _, keyCode, event ->
                 if (
                     keyCode == KeyEvent.KEYCODE_BACK &&
@@ -320,12 +405,13 @@ class OverlayController(private val service: RefocusAccessibilityService) {
             setOnApplyWindowInsetsListener { view, insets ->
                 val bars = insets.getInsets(WindowInsets.Type.systemBars())
                 val ime = insets.getInsets(WindowInsets.Type.ime())
-                view.setPadding(
+                scrollParams.setMargins(
                     dp(18),
-                    bars.top + dp(if (ime.bottom > 0) 10 else 26),
+                    bars.top + dp(if (ime.bottom > 0) 10 else 32),
                     dp(18),
-                    maxOf(bars.bottom, ime.bottom) + dp(18),
+                    maxOf(bars.bottom, ime.bottom) + dp(if (ime.bottom > 0) 10 else 18),
                 )
+                scroll.layoutParams = scrollParams
                 insets
             }
         }
@@ -333,10 +419,16 @@ class OverlayController(private val service: RefocusAccessibilityService) {
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_BLUR_BEHIND,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            setFitInsetsTypes(0)
+            layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            setBlurBehindRadius(dp(48))
             softInputMode =
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
                     WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
@@ -545,6 +637,6 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         val FIELD = Color.rgb(244, 247, 243)
         val SURFACE_TINT = Color.rgb(230, 238, 232)
         val STROKE = Color.rgb(213, 222, 215)
-        val SCRIM = Color.argb(132, 9, 13, 11)
+        val ACRYLIC_TINT = Color.argb(102, 224, 232, 226)
     }
 }
