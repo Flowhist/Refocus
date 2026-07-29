@@ -16,7 +16,6 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowManager
-import android.view.animation.DecelerateInterpolator
 import android.view.animation.PathInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -351,11 +350,11 @@ class OverlayController(private val service: RefocusAccessibilityService) {
 
         card?.animate()
             ?.alpha(0f)
-            ?.scaleX(0.98f)
-            ?.scaleY(0.98f)
-            ?.translationY(dp(10).toFloat())
+            ?.scaleX(0.99f)
+            ?.scaleY(0.99f)
+            ?.translationY(dp(6).toFloat())
             ?.setDuration(EXIT_ANIMATION_MS)
-            ?.setInterpolator(DecelerateInterpolator())
+            ?.setInterpolator(KEYBOARD_INTERPOLATOR)
             ?.start()
         scrim?.animate()
             ?.alpha(0f)
@@ -453,16 +452,16 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         root.requestApplyInsets()
 
         content.alpha = 0f
-        content.scaleX = 0.96f
-        content.scaleY = 0.96f
-        content.translationY = dp(18).toFloat()
+        content.scaleX = 0.985f
+        content.scaleY = 0.985f
+        content.translationY = dp(10).toFloat()
         content.animate()
             .alpha(1f)
             .scaleX(1f)
             .scaleY(1f)
             .translationY(0f)
             .setDuration(ENTER_ANIMATION_MS)
-            .setInterpolator(DecelerateInterpolator())
+            .setInterpolator(KEYBOARD_INTERPOLATOR)
             .start()
         scrim.animate()
             .alpha(1f)
@@ -669,9 +668,9 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
             intArrayOf(
-                Color.argb(54, 232, 236, 233),
-                Color.argb(68, 121, 131, 124),
-                Color.argb(86, 38, 45, 41),
+                Color.argb(48, 244, 246, 245),
+                Color.argb(62, 205, 210, 207),
+                Color.argb(72, 142, 151, 145),
             ),
         )
 
@@ -681,9 +680,9 @@ class OverlayController(private val service: RefocusAccessibilityService) {
     private companion object {
         const val MATCH = LinearLayout.LayoutParams.MATCH_PARENT
         const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
-        const val ENTER_ANIMATION_MS = 240L
-        const val EXIT_ANIMATION_MS = 180L
-        const val BLUR_RADIUS_DP = 48
+        const val ENTER_ANIMATION_MS = 280L
+        const val EXIT_ANIMATION_MS = 220L
+        const val BLUR_RADIUS_DP = 36
 
         val BOLD: Typeface = Typeface.create("sans-serif", Typeface.BOLD)
         val MEDIUM: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
