@@ -31,6 +31,4 @@ through Obtainium. Signing and first-time setup are documented in
 ## Privacy
 
 Refocus stores data locally and observes package names only. It does not inspect
-accessibility node text or transmit usage records. While a prompt is visible,
-Refocus may hold a temporary screen image in memory to render the frosted-glass
-background. It is recycled when the prompt closes and is never saved or sent.
+accessibility node text or transmit usage records.
