@@ -28,11 +28,10 @@ never appears in source control or chat.
 
 1. Increase `versionCode` and `versionName` in `app/build.gradle.kts`.
 2. Commit and push the changes.
-3. Push a matching tag, for example `v0.2.0`.
-4. GitHub Actions runs unit tests, builds a signed APK, and attaches it to a
+3. Open **Actions > Release Android APK > Run workflow**.
+4. Enter a new release tag, for example `v0.3.0`.
+5. GitHub Actions runs unit tests, builds a signed APK, and attaches it to a
    GitHub Release.
-
-The workflow can also be started manually and given a release tag.
 
 ## Obtainium setup
 

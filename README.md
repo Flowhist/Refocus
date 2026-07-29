@@ -15,7 +15,7 @@ The project uses Android Gradle Plugin 8.13.0 and compiles against Android API 3
 
 ## Updates
 
-Tagged versions are built and published by GitHub Actions for installation
+Versions are built and published from the GitHub Actions page for installation
 through Obtainium. Signing and first-time setup are documented in
 [docs/UPDATES.md](docs/UPDATES.md).
 
