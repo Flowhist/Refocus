@@ -4,8 +4,12 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Shader
 import android.graphics.Typeface
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Build
 import android.text.Editable
@@ -27,6 +31,7 @@ import android.widget.TextView
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import kotlin.math.ceil
+import kotlin.random.Random
 
 class OverlayController(private val service: RefocusAccessibilityService) {
     enum class Kind { PURPOSE, COMPLETION, GRACE, OVERDUE }
@@ -664,15 +669,37 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         cornerRadius = dp(radiusDp).toFloat()
     }
 
-    private fun acrylicBackdrop() =
-        GradientDrawable(
+    private fun acrylicBackdrop(): LayerDrawable {
+        val milkyTint = GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
             intArrayOf(
-                Color.argb(66, 238, 241, 239),
-                Color.argb(76, 202, 207, 204),
-                Color.argb(82, 161, 168, 163),
+                Color.argb(78, 245, 247, 245),
+                Color.argb(86, 217, 222, 218),
+                Color.argb(90, 180, 187, 182),
             ),
         )
+
+        val random = Random(NOISE_SEED)
+        val pixels = IntArray(NOISE_TILE_PX * NOISE_TILE_PX) {
+            if (random.nextBoolean()) {
+                Color.argb(random.nextInt(4, 11), 255, 255, 255)
+            } else {
+                Color.argb(random.nextInt(2, 7), 20, 28, 23)
+            }
+        }
+        val bitmap = Bitmap.createBitmap(
+            pixels,
+            NOISE_TILE_PX,
+            NOISE_TILE_PX,
+            Bitmap.Config.ARGB_8888,
+        )
+        val grain = BitmapDrawable(service.resources, bitmap).apply {
+            tileModeX = Shader.TileMode.REPEAT
+            tileModeY = Shader.TileMode.REPEAT
+            isFilterBitmap = false
+        }
+        return LayerDrawable(arrayOf(milkyTint, grain))
+    }
 
     private fun dp(value: Int): Int =
         (value * service.resources.displayMetrics.density).toInt()
@@ -683,6 +710,8 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         const val ENTER_ANIMATION_MS = 280L
         const val EXIT_ANIMATION_MS = 220L
         const val BLUR_RADIUS_PX = 64
+        const val NOISE_TILE_PX = 64
+        const val NOISE_SEED = 2709
 
         val BOLD: Typeface = Typeface.create("sans-serif", Typeface.BOLD)
         val MEDIUM: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
