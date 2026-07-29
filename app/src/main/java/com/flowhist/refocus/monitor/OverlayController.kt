@@ -436,7 +436,7 @@ class OverlayController(private val service: RefocusAccessibilityService) {
             setFitInsetsTypes(0)
             layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-            setBlurBehindRadius(dp(BLUR_RADIUS_DP))
+            setBlurBehindRadius(BLUR_RADIUS_PX)
             softInputMode =
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING or
                     WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
@@ -668,9 +668,9 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         GradientDrawable(
             GradientDrawable.Orientation.TOP_BOTTOM,
             intArrayOf(
-                Color.argb(48, 244, 246, 245),
-                Color.argb(62, 205, 210, 207),
-                Color.argb(72, 142, 151, 145),
+                Color.argb(66, 238, 241, 239),
+                Color.argb(76, 202, 207, 204),
+                Color.argb(82, 161, 168, 163),
             ),
         )
 
@@ -682,7 +682,7 @@ class OverlayController(private val service: RefocusAccessibilityService) {
         const val WRAP = LinearLayout.LayoutParams.WRAP_CONTENT
         const val ENTER_ANIMATION_MS = 280L
         const val EXIT_ANIMATION_MS = 220L
-        const val BLUR_RADIUS_DP = 36
+        const val BLUR_RADIUS_PX = 64
 
         val BOLD: Typeface = Typeface.create("sans-serif", Typeface.BOLD)
         val MEDIUM: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
