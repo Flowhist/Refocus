@@ -46,13 +46,61 @@ jobs:
           echo "ANDROID_SIGNING_STORE_FILE=$RUNNER_TEMP/refocus.keystore" >> "$GITHUB_ENV"
 
       - name: Test and build signed APK
-        run: ./gradlew testDebugUnitTest assembleRelease --no-daemon
+        run: ./gradlew testDebugUnitTest lintDebug assembleRelease --no-daemon
 
       - name: Prepare release asset
         run: |
           VERSION="${RELEASE_TAG#v}"
           cp app/build/outputs/apk/release/app-release.apk "Refocus-${VERSION}.apk"
           echo "APK_PATH=Refocus-${VERSION}.apk" >> "$GITHUB_ENV"
+
+      - name: Verify release identity
+        env:
+          EXPECTED_CERT_SHA256: 711867c2ed3ece58719038c46a9d7dd37f974364dd430456bf82b204b8dc03c3
+        run: |
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d \
+            | sort -V | tail -n 1)"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+          AAPT2="$BUILD_TOOLS/aapt2"
+
+          test -x "$APKSIGNER" || {
+            echo "::error::apksigner was not found"
+            exit 1
+          }
+          test -x "$AAPT2" || {
+            echo "::error::aapt2 was not found"
+            exit 1
+          }
+
+          APK_CERT_SHA256="$(
+            "$APKSIGNER" verify --print-certs "$APK_PATH" \
+              | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {
+                  print tolower($2)
+                  exit
+                }'
+          )"
+          EXPECTED_VERSION="${RELEASE_TAG#v}"
+          APK_VERSION="$(
+            "$AAPT2" dump badging "$APK_PATH" \
+              | sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p" \
+              | head -n 1
+          )"
+
+          test -n "$APK_CERT_SHA256" || {
+            echo "::error::APK signing certificate could not be read"
+            exit 1
+          }
+          test "$APK_CERT_SHA256" = "$EXPECTED_CERT_SHA256" || {
+            echo "::error::APK signing certificate does not match the established release key"
+            exit 1
+          }
+          test "$APK_VERSION" = "$EXPECTED_VERSION" || {
+            echo "::error::APK version '$APK_VERSION' does not match '$EXPECTED_VERSION'"
+            exit 1
+          }
+
+          echo "Verified APK version $APK_VERSION"
+          echo "Verified signing certificate SHA-256 $APK_CERT_SHA256"
 
       - name: Publish GitHub Release
         env:
