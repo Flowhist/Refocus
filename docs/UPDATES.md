@@ -2,6 +2,16 @@
 
 Refocus can be distributed through GitHub Releases and tracked by Obtainium.
 
+## 0.2.14
+
+- Reworked the main screen into a quieter status-led control center.
+- Added a contextual primary action for setup, app selection, pause, and resume.
+- Added a compact guarded-app summary with an on-demand full app manager.
+- Added a current-session strip and icon-based Material 3 bottom navigation.
+- Grouped setup into required, recommended, and vivo-only sections.
+- Added temporary permission-change highlighting and hid vivo controls on other
+  manufacturers.
+
 ## 0.2.13
 
 - Replaced the permanent 250 ms monitoring loop with event-driven wakeups and
