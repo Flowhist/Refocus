@@ -5,22 +5,45 @@ import android.content.Context
 class SettingsRepository(context: Context) {
     private val preferences =
         context.getSharedPreferences("refocus_settings", Context.MODE_PRIVATE)
-
-    var monitoringEnabled: Boolean
-        get() = preferences.getBoolean(KEY_MONITORING_ENABLED, false)
-        set(value) = preferences.edit().putBoolean(KEY_MONITORING_ENABLED, value).apply()
-
-    fun monitoredPackages(): Set<String> =
+    private val changeListeners = mutableSetOf<() -> Unit>()
+    private var monitoringEnabledCache =
+        preferences.getBoolean(KEY_MONITORING_ENABLED, false)
+    private var monitoredPackagesCache =
         preferences.getStringSet(KEY_MONITORED_PACKAGES, emptySet())?.toSet() ?: emptySet()
 
+    var monitoringEnabled: Boolean
+        get() = monitoringEnabledCache
+        set(value) {
+            if (monitoringEnabledCache == value) return
+            monitoringEnabledCache = value
+            preferences.edit().putBoolean(KEY_MONITORING_ENABLED, value).apply()
+            notifyChanged()
+        }
+
+    fun monitoredPackages(): Set<String> = monitoredPackagesCache
+
     fun setPackageMonitored(packageName: String, monitored: Boolean) {
-        val packages = monitoredPackages().toMutableSet()
+        val packages = monitoredPackagesCache.toMutableSet()
         if (monitored) packages += packageName else packages -= packageName
-        preferences.edit().putStringSet(KEY_MONITORED_PACKAGES, packages).apply()
+        if (packages == monitoredPackagesCache) return
+        monitoredPackagesCache = packages.toSet()
+        preferences.edit().putStringSet(KEY_MONITORED_PACKAGES, monitoredPackagesCache).apply()
+        notifyChanged()
     }
 
-    fun isPackageMonitored(packageName: String): Boolean =
-        packageName in monitoredPackages()
+    fun isPackageMonitored(packageName: String): Boolean = packageName in monitoredPackagesCache
+
+    fun addChangeListener(listener: () -> Unit) {
+        changeListeners += listener
+    }
+
+    fun removeChangeListener(listener: () -> Unit) {
+        changeListeners -= listener
+    }
+
+    private fun notifyChanged() {
+        changeListeners.toList().forEach { it() }
+    }
 
     fun saveActiveSession(session: ActiveSession?) {
         val edit = preferences.edit()

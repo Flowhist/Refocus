@@ -22,6 +22,7 @@ import com.flowhist.refocus.data.PendingCompletion
 import com.flowhist.refocus.data.SessionDatabase
 import com.flowhist.refocus.data.SettingsRepository
 import com.flowhist.refocus.domain.ForegroundRules
+import com.flowhist.refocus.domain.MonitoringSchedule
 import com.flowhist.refocus.domain.ScoreRules
 import com.flowhist.refocus.ui.MainActivity
 import com.flowhist.refocus.util.AppCatalog
@@ -33,9 +34,13 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.withTimeoutOrNull
 
 class RefocusAccessibilityService : AccessibilityService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val tickRequests = Channel<Unit>(Channel.CONFLATED)
+    private val settingsChangeListener: () -> Unit = { requestTick() }
     private lateinit var settings: SettingsRepository
     private lateinit var database: SessionDatabase
     private lateinit var overlays: OverlayController
@@ -59,6 +64,7 @@ class RefocusAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         val app = application as RefocusApplication
         settings = app.settings
+        settings.addChangeListener(settingsChangeListener)
         database = app.sessions
         overlays = OverlayController(this)
         keyguardManager = getSystemService(KeyguardManager::class.java)
@@ -78,7 +84,9 @@ class RefocusAccessibilityService : AccessibilityService() {
         serviceScope.launch {
             while (isActive) {
                 tick()
-                delay(TICK_MS)
+                withTimeoutOrNull(nextTickDelayMs()) {
+                    tickRequests.receive()
+                }
             }
         }
         serviceScope.launch {
@@ -96,7 +104,7 @@ class RefocusAccessibilityService : AccessibilityService() {
                 overlays.dismiss()
             }
         }
-        evaluateForeground()
+        requestTick()
     }
 
     override fun onInterrupt() {
@@ -110,8 +118,30 @@ class RefocusAccessibilityService : AccessibilityService() {
             runCatching { unregisterReceiver(screenReceiver) }
             screenReceiverRegistered = false
         }
+        if (::settings.isInitialized) {
+            settings.removeChangeListener(settingsChangeListener)
+        }
         serviceScope.cancel()
+        tickRequests.close()
         super.onDestroy()
+    }
+
+    private fun requestTick() {
+        tickRequests.trySend(Unit)
+    }
+
+    private fun nextTickDelayMs(): Long {
+        if (!::settings.isInitialized || !::keyguardManager.isInitialized) {
+            return MonitoringSchedule.IDLE_HEARTBEAT_MS
+        }
+        return MonitoringSchedule.nextDelayMs(
+            session = activeSession,
+            nowElapsed = SystemClock.elapsedRealtime(),
+            monitoringEnabled = settings.monitoringEnabled,
+            deviceLocked = keyguardManager.isDeviceLocked,
+            hasPendingCompletion = pendingCompletion != null,
+            graceDurationMs = GRACE_MS,
+        )
     }
 
     private fun tick() {
@@ -484,7 +514,11 @@ class RefocusAccessibilityService : AccessibilityService() {
                 Intent.ACTION_USER_PRESENT -> resumeSession()
                 Intent.ACTION_SCREEN_ON -> serviceScope.launch {
                     delay(300)
-                    if (!keyguardManager.isDeviceLocked) resumeSession()
+                    if (!keyguardManager.isDeviceLocked) {
+                        resumeSession()
+                    } else {
+                        requestTick()
+                    }
                 }
             }
         }
@@ -549,7 +583,6 @@ class RefocusAccessibilityService : AccessibilityService() {
 
         private const val NOTIFICATION_CHANNEL = "monitoring"
         private const val NOTIFICATION_ID = 1001
-        private const val TICK_MS = 250L
         private const val EXIT_GRACE_MS = 10_000L
         private const val GRACE_MS = 5_000L
         private const val REMINDER_MS = 5_000L

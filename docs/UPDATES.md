@@ -2,6 +2,19 @@
 
 Refocus can be distributed through GitHub Releases and tracked by Obtainium.
 
+## 0.2.13
+
+- Replaced the permanent 250 ms monitoring loop with event-driven wakeups and
+  adaptive heartbeats.
+- Reduced idle checks from four times per second to once per minute, while app
+  switch accessibility events still wake monitoring immediately.
+- Kept active sessions responsive with a five-second fallback and one-second
+  grace countdown updates.
+- Cached monitoring settings and selected packages to avoid repeated
+  `SharedPreferences` reads and temporary set allocations.
+- Added scheduling unit tests and fixed the Android 14 quick-settings launch
+  compatibility lint error.
+
 ## Why signing matters
 
 Android accepts an APK as an update only when its application ID and signing
