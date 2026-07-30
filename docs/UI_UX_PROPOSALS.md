@@ -19,6 +19,11 @@ the same visual level.
 Best for the next release because it preserves the current architecture and has
 the lowest implementation risk.
 
+Implementation status: the status-led home screen, compact guarded-app summary,
+on-demand app manager, current-session strip, icon bottom navigation, grouped
+setup, vivo-only visibility, and permission-change highlight are implemented on
+`main`.
+
 ### Main screen
 
 - Replace the large static header with one status card: **守门中 / 已暂停 /
