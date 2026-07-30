@@ -72,12 +72,18 @@ jobs:
             exit 1
           }
 
+          if ! APK_CERTS="$(
+            "$APKSIGNER" verify --verbose --print-certs "$APK_PATH" 2>&1
+          )"; then
+            echo "::error::APK signature verification failed"
+            exit 1
+          fi
           APK_CERT_SHA256="$(
-            "$APKSIGNER" verify --print-certs "$APK_PATH" \
-              | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {
-                  print tolower($2)
-                  exit
-                }'
+            printf '%s\n' "$APK_CERTS" \
+              | grep -Eio '[0-9a-f]{64}' \
+              | head -n 1 \
+              | tr '[:upper:]' '[:lower:]' \
+              || true
           )"
           EXPECTED_VERSION="${RELEASE_TAG#v}"
           APK_VERSION="$(
